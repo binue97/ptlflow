@@ -1,0 +1,27 @@
+# Docker Compose configuration for PTLFlow
+
+services:
+  ptlflow:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: final
+    image: ptlflow:latest
+    container_name: ptlflow
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    volumes:
+      - /home/bnu/workspace/ptlflow:/workspace/ptlflow
+      - /home/bnu/hdd/data:/data
+    working_dir: /workspace/ptlflow
+    stdin_open: true
+    tty: true
+    shm_size: '8gb'
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

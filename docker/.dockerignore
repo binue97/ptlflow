@@ -1,0 +1,89 @@
+# Docker ignore file for ptlflow
+# Excludes files from Docker build context for faster builds
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Docker
+docker/
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.env
+.venv/
+env/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Documentation
+docs/_build/
+*.md
+!README.md
+
+# Logs and databases
+*.log
+*.sqlite
+
+# Local data and outputs (mount these as volumes instead)
+data/
+output/
+checkpoints/
+ptlflow_logs/
+*.pth
+*.ckpt
+
+# Misc
+.DS_Store
+Thumbs.db
+*.bak
+*.tmp
+
+# Large files
+*.tar
+*.tar.gz
+*.zip
+*.rar
+
+# Notebooks
+*.ipynb
+.ipynb_checkpoints/
