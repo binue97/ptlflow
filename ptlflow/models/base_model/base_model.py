@@ -354,7 +354,7 @@ class BaseModel(pl.LightningModule):
             metrics["train/loss"] = loss.item()
         self.log_dict(metrics, on_step=True, on_epoch=True)
         self.log(
-            "epe", metrics["train/epe"], prog_bar=True, on_step=True, on_epoch=True
+            "epe", metrics["train/epe"], prog_bar=True, on_step=True, on_epoch=True, sync_dist=True
         )
 
         outputs = {"loss": loss, "dataset_name": batch["meta"]["dataset_name"]}
