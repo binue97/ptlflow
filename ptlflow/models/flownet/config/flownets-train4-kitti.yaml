@@ -1,0 +1,29 @@
+# lightning.pytorch==2.4.0
+seed_everything: true
+ckpt_path: /data/weights/260327/sintel/checkpoints/flownets_wb_last_epoch=199_step=13200.ckpt
+lr: 0.000125
+wdecay: 0.0001
+trainer:
+  max_epochs: 300 # 200 / batch_size(4) = 50 iterations per epoch, 50*300=15000 ~= 0.015M iterations
+  accumulate_grad_batches: 1
+  gradient_clip_val: 1.0
+  devices: 0,1,2,3,4,5,6,7
+model:
+  class_path: ptlflow.models.flownets_wb
+  init_args:
+    div_flow: 20.0
+    input_channels: 6
+    batch_norm: False
+    loss_start_scale: 4
+    loss_num_scales: 5
+    loss_base_weight: 0.32
+    loss_norm: L2
+    warm_start: false
+data:
+  train_dataset: kitti-2015
+  val_dataset: sintel-final-val+kitti-2015-val
+  train_batch_size: 4
+  train_num_workers: 4
+  train_crop_size: [288, 960]
+  train_transform_cuda: false
+  train_transform_fp16: false

@@ -4,3 +4,4 @@ from .flownetcs import *
 from .flownetcss import *
 from .flownets import *
 from .flownetsd import *
+from .flownets_wb import *
