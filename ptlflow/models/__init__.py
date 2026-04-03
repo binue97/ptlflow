@@ -29,6 +29,7 @@ from .pwcnet import *
 from .raft import *
 from .rapidflow import *
 from .rapidflow_v1 import *
+from .ofnet import *
 from .rpknet import *
 from .sea_raft import *
 from .scopeflow import *
