@@ -28,6 +28,7 @@ from .neuflow2 import *
 from .pwcnet import *
 from .raft import *
 from .rapidflow import *
+from .rapidflow_v1 import *
 from .rpknet import *
 from .sea_raft import *
 from .scopeflow import *
