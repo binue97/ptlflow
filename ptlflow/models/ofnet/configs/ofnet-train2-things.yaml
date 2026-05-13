@@ -9,7 +9,7 @@ trainer:
   gradient_clip_val: 1.0
   devices: 0,
 model:
-  class_path: ptlflow.models.rapidflow
+  class_path: ptlflow.models.ofnet_v1m
   init_args:
     pyramid_ranges:
     - 32

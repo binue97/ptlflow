@@ -76,10 +76,16 @@ class CorrBlock:
     @staticmethod
     def corr(fmap1, fmap2):
         batch, dim, ht, wd = fmap1.shape
+        # Lets set N = H * W
+        # fmap1, fmap2: [B, C, N]
         fmap1 = fmap1.view(batch, dim, ht * wd)
         fmap2 = fmap2.view(batch, dim, ht * wd)
 
+        # [B, C, N]^T @ [B, C, N]
+        # [B, N, C] @ [B, C, N] -> [B, N, N]
         corr = torch.matmul(fmap1.transpose(1, 2), fmap2)
+        # [B, N, N] -> [B, H, W, 1, H, W]
+        # Each entry in corr corresponds to the correlation between a pixel in fmap1 and a pixel in fmap2.
         corr = corr.view(batch, ht, wd, 1, ht, wd)
         return corr / math.sqrt(dim)
 

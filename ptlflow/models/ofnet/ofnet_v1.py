@@ -196,7 +196,9 @@ class OFNetV1(BaseModel):
 
     def coords_grid(self, batch, ht, wd, dtype, device):
         coords = torch.meshgrid(
+            # zero to ht-1
             torch.arange(ht, dtype=dtype, device=device),
+            # zero to wd-1
             torch.arange(wd, dtype=dtype, device=device),
             indexing="ij",
         )
@@ -258,6 +260,8 @@ class OFNetV1(BaseModel):
         pass_pyramid2 = x2_pyramid[start_level : output_level + 1]
         pass_pyramid_cnet = cnet_pyramid[start_level : output_level + 1]
 
+        # Calculate iterations per one pyramid level.
+        # It distributes iterations evenly across levels.
         iters_per_level = [
             int(math.ceil(float(self.iters) / (output_level - start_level + 1)))
         ] * (output_level - start_level + 1)
@@ -368,6 +372,18 @@ class OFNetV1(BaseModel):
             return outputs
 
 
+class OFNetV1T(OFNetV1):
+    def __init__(
+        self,
+        pyramid_ranges: tuple[int, int] = (32, 8),
+        iters: int = 1,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            pyramid_ranges,
+            iters,
+            **kwargs,
+        )
 
 class OFNetV1S(OFNetV1):
     def __init__(
@@ -414,6 +430,13 @@ class OFNetV1L(OFNetV1):
 @trainable
 @ptlflow_trained
 class ofnet_v1(OFNetV1):
+    pass
+
+
+@register_model
+@trainable
+@ptlflow_trained
+class ofnet_v1t(OFNetV1T):
     pass
 
 

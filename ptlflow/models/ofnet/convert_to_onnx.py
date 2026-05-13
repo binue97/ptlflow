@@ -18,8 +18,9 @@ import torch
 import torch.nn as nn
 
 from ptlflow import restore_model
-from ptlflow.models.ofnet_v1.ofnet import (
+from ptlflow.models.ofnet.ofnet_v1 import (
     ofnet_v1,
+    ofnet_v1t,
     ofnet_v1s,
     ofnet_v1m,
     ofnet_v1l,
@@ -27,6 +28,7 @@ from ptlflow.models.ofnet_v1.ofnet import (
 
 _MODELS = {
     "ofnet_v1": ofnet_v1,
+    "ofnet_v1t": ofnet_v1t,
     "ofnet_v1s": ofnet_v1s,
     "ofnet_v1m": ofnet_v1m,
     "ofnet_v1l": ofnet_v1l,
