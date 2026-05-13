@@ -309,9 +309,8 @@ class OFNetV1(BaseModel):
                 alternate_corr=self.corr_mode == "local",
             )
 
-            net_tmp, inp = torch.split(
-                cnet, [self.dec_net_chs, self.dec_inp_chs], dim=1
-            )
+            net_tmp, inp = torch.split(cnet, [self.dec_net_chs, self.dec_inp_chs], dim=1)
+
             inp = torch.relu(inp)
 
             if net is None:
@@ -343,7 +342,8 @@ class OFNetV1(BaseModel):
                 flow = flow.detach()
 
                 # correlation
-                out_corr = corr_fn(coords0 + flow)
+                # out_corr = corr_fn(coords0 + flow)
+                out_corr = corr_fn(coords0, flow)
 
                 flow_res, net, _ = self.update_block(
                     net, inp, out_corr, flow

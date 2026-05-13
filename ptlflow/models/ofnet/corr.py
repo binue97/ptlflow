@@ -29,6 +29,138 @@ except:
 from ptlflow.utils.correlation import IterativeCorrBlock
 
 
+import math
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+class MyCorrBlock:
+    # Customized correlation block that doesn't compute all-pairs correlation but only samples a local neighborhood from fmap2 on the fly.
+    def __init__(self, fmap1, fmap2, num_levels=1, radius=4):
+        self.radius = radius
+        self.num_levels = num_levels
+        self.fmap1 = fmap1                              # [B, C, H, W]
+        self.fmap2_pyramid = [fmap2]
+        for _ in range(num_levels - 1):
+            self.fmap2_pyramid.append(
+                F.avg_pool2d(self.fmap2_pyramid[-1], 2, stride=2)
+            )
+
+    def __call__(self, coords):
+        # coords: [B, 2, H, W] in pixel units of the current pyramid level
+        B, _, H, W = coords.shape
+        r = self.radius
+        K = 2 * r + 1
+        dtype, device = coords.dtype, coords.device
+        C = self.fmap1.shape[1]
+
+        dy = torch.linspace(-r, r, K, dtype=dtype, device=device)
+        dx = torch.linspace(-r, r, K, dtype=dtype, device=device)
+        dy, dx = torch.meshgrid(dy, dx, indexing="ij")
+        # delta = torch.stack([dx, dy], dim=-1)           # [K, K, 2] Original implementation.
+        delta = torch.stack([dy, dx], dim=-1)           # [K, K, 2] Mathamatically flawless but to make comply with original CorrBlock.
+
+        # [B, H, W, 2]
+        coords_perm = coords.permute(0, 2, 3, 1)
+
+        out_levels = []
+        for i in range(self.num_levels):
+            fmap2_i = self.fmap2_pyramid[i]
+            _, _, H2, W2 = fmap2_i.shape
+
+            coords_i = coords_perm / (2 ** i)           # [B, H, W, 2]
+
+            # Tile each (h, w) into a KxK block of sample locations.
+            # broadcast: [B, H, 1, W, 1, 2] + [1, 1, K, 1, K, 2] -> [B, H, K, W, K, 2]
+            grid = (
+                coords_i[:, :, None, :, None, :]
+                + delta[None, None, :, None, :, :]
+            )
+            grid = grid.reshape(B, H * K, W * K, 2)     # [B, H*K, W*K, 2]
+
+            # Normalize to [-1, 1] for grid_sample.
+            xn = 2.0 * grid[..., 0] / max(W2 - 1, 1) - 1.0
+            yn = 2.0 * grid[..., 1] / max(H2 - 1, 1) - 1.0
+            grid = torch.stack([xn, yn], dim=-1)
+
+            warped = F.grid_sample(
+                fmap2_i, grid, mode="bilinear",
+                padding_mode="zeros", align_corners=True,
+            )                                            # [B, C, H*K, W*K]
+
+            warped = warped.view(B, C, H, K, W, K)
+            warped = warped.permute(0, 1, 3, 5, 2, 4).contiguous()
+            warped = warped.reshape(B, C, K * K, H, W)   # [B, C, K*K, H, W]
+
+            # Per-pixel dot product with fmap1 -> correlation.
+            # [B, C, 1, H, W] * [B, C, K*K, H, W] -> sum_C -> [B, K*K, H, W]
+            corr = (self.fmap1.unsqueeze(2) * warped).sum(dim=1) / math.sqrt(C)
+            out_levels.append(corr)
+
+        return torch.cat(out_levels, dim=1)
+
+
+class TIDLCorrBlock:
+    # Correlation block that samples a local neighborhood from fmap2 on the fly, but computes correlation in the normalized coordinate space of fmap2.
+    def __init__(self, fmap1, fmap2, num_levels=1, radius=4):
+        self.radius = radius
+        self.num_levels = num_levels
+        self.fmap1 = fmap1
+        self.fmap2_pyramid = [fmap2]
+        for _ in range(num_levels - 1):
+            self.fmap2_pyramid.append(F.avg_pool2d(self.fmap2_pyramid[-1], 2, stride=2))
+
+    def __call__(self, coords0, flow):
+        # coords0: [B,2,H,W]  Pixel coordinate grid (constant)
+        # flow:    [B,2,H,W]  flow (in pixel units)
+        B, _, H, W = coords0.shape
+        r = self.radius
+        K = 2 * r + 1
+        dtype, device = coords0.dtype, coords0.device
+        C = self.fmap1.shape[1]
+
+        dy = torch.linspace(-r, r, K, dtype=dtype, device=device)
+        dx = torch.linspace(-r, r, K, dtype=dtype, device=device)
+        dy, dx = torch.meshgrid(dy, dx, indexing="ij")
+        delta = torch.stack([dy, dx], dim=-1)
+
+        coords0_perm = coords0.permute(0, 2, 3, 1)
+        flow_perm = flow.permute(0, 2, 3, 1)
+
+        out_levels = []
+        for i in range(self.num_levels):
+            fmap2_i = self.fmap2_pyramid[i]
+            _, _, H2, W2 = fmap2_i.shape
+            si = 1.0 / (2 ** i)
+            sx = 2.0 / max(W2 - 1, 1)
+            sy = 2.0 / max(H2 - 1, 1)
+
+            # Normalized coords0 (coords0 is constant → can be folded as constant in ONNX)
+            c0x = coords0_perm[..., 0] * (si * sx) - 1.0
+            c0y = coords0_perm[..., 1] * (si * sy) - 1.0
+            # flow contribution (only small scale is multiplied, no -1)
+            fx = flow_perm[..., 0] * (si * sx)
+            fy = flow_perm[..., 1] * (si * sy)
+            # Normalized coordinates with flow contribution → ~[-1,1]
+            coords_n = torch.stack([c0x + fx, c0y + fy], dim=-1) # [B,H,W,2]
+
+            # delta also in normalized unit
+            delta_n = torch.stack([delta[..., 0] * sx, delta[..., 1] * sy], dim=-1) # [K,K,2]
+
+            grid = (coords_n[:, :, None, :, None, :] + delta_n[None, None, :, None, :, :]) # [B,H,K,W,K,2]
+            grid = grid.reshape(B, H * K, W * K, 2) # ~[-1.1,1.1]
+
+            warped = F.grid_sample(fmap2_i, grid, mode="bilinear", padding_mode="zeros", align_corners=True)
+            warped = warped.view(B, C, H, K, W, K)
+            warped = warped.permute(0, 1, 3, 5, 2, 4).contiguous()
+            warped = warped.reshape(B, C, K * K, H, W)
+            corr = (self.fmap1.unsqueeze(2) * warped).sum(dim=1) / math.sqrt(C)
+            out_levels.append(corr)
+
+        return torch.cat(out_levels, dim=1)
+
+
 class CorrBlock:
     def __init__(self, fmap1, fmap2, num_levels=4, radius=4):
         self.num_levels = num_levels
@@ -140,5 +272,7 @@ def get_corr_block(
         else:
             corr_fn = AlternateCorrBlock
     else:
-        corr_fn = CorrBlock
+        # corr_fn = CorrBlock
+        # corr_fn = MyCorrBlock
+        corr_fn = TIDLCorrBlock
     return corr_fn(fmap1=fmap1, fmap2=fmap2, radius=radius, num_levels=num_levels)
