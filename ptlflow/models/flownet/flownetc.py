@@ -54,10 +54,10 @@ class FlowNetC(FlowNetBase):
         self.conv6 = conv(self.batch_norm, 512, 1024, stride=2)
         self.conv6_1 = conv(self.batch_norm, 1024, 1024)
 
-        self.deconv5 = deconv(1024, 512)
-        self.deconv4 = deconv(1026, 256)
-        self.deconv3 = deconv(770, 128)
-        self.deconv2 = deconv(386, 64)
+        self.deconv5 = deconv(self.batch_norm, 1024, 512)
+        self.deconv4 = deconv(self.batch_norm, 1026, 256)
+        self.deconv3 = deconv(self.batch_norm, 770, 128)
+        self.deconv2 = deconv(self.batch_norm, 386, 64)
 
         self.predict_flow6 = predict_flow(1024)
         self.predict_flow5 = predict_flow(1026)

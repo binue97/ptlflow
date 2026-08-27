@@ -190,20 +190,29 @@ class PWCNet(BaseModel):
 
         return output * mask
 
-    def forward(self, inputs):
-        images, image_resizer = self.preprocess_images(
-            inputs["images"],
-            bgr_add=0.0,
-            bgr_mult=1.0,
-            bgr_to_rgb=False,
-            resize_mode="interpolation",
-            interpolation_mode="bilinear",
-            interpolation_align_corners=False,
-        )
+    def forward(self, inputs, skip_preprocess=False):
+        images = inputs["images"]
+        if skip_preprocess:
+            image_resizer = None
+        else:
+            images, image_resizer = self.preprocess_images(
+                images,
+                bgr_add=0.0,
+                bgr_mult=1.0,
+                bgr_to_rgb=False,
+                resize_mode="interpolation",
+                interpolation_mode="bilinear",
+                interpolation_align_corners=False,
+            )
 
-        im1 = images[:, 0]
-        im2 = images[:, 1]
+        return self._forward_pair(images[:, 0], images[:, 1], image_resizer)
 
+    def _forward_pair(self, im1, im2, image_resizer=None):
+        """Run the network core on two pre-split (B, 3, H, W) frames.
+
+        - Input images should be in RGB format.
+        - Data range should be [0, 1] (float32).
+        """
         c11 = self.conv1b(self.conv1aa(self.conv1a(im1)))
         c21 = self.conv1b(self.conv1aa(self.conv1a(im2)))
         c12 = self.conv2b(self.conv2aa(self.conv2a(c11)))
@@ -291,7 +300,8 @@ class PWCNet(BaseModel):
         flow2 = self.predict_flow2(x)
 
         flow_up = self.upsample1(flow2 * self.div_flow)
-        flow_up = self.postprocess_predictions(flow_up, image_resizer, is_flow=True)
+        if image_resizer is not None:
+            flow_up = self.postprocess_predictions(flow_up, image_resizer, is_flow=True)
 
         outputs = {}
         if self.training:
@@ -348,20 +358,29 @@ class PWCDCNet(PWCNet):
                 if m.bias is not None:
                     m.bias.data.zero_()
 
-    def forward(self, inputs):
-        images, image_resizer = self.preprocess_images(
-            inputs["images"],
-            bgr_add=0.0,
-            bgr_mult=1.0,
-            bgr_to_rgb=True,
-            resize_mode="interpolation",
-            interpolation_mode="bilinear",
-            interpolation_align_corners=True,
-        )
+    def forward(self, inputs, skip_preprocess=False):
+        images = inputs["images"]
+        if skip_preprocess:
+            image_resizer = None
+        else:
+            images, image_resizer = self.preprocess_images(
+                images,
+                bgr_add=0.0,
+                bgr_mult=1.0,
+                bgr_to_rgb=True,
+                resize_mode="interpolation",
+                interpolation_mode="bilinear",
+                interpolation_align_corners=True,
+            )
 
-        im1 = images[:, 0]
-        im2 = images[:, 1]
+        return self._forward_pair(images[:, 0], images[:, 1], image_resizer)
 
+    def _forward_pair(self, im1, im2, image_resizer=None):
+        """Run the network core on two pre-split (B, 3, H, W) frames.
+
+        - Input images should be in RGB format.
+        - Data range should be [0, 1] (float32).
+        """
         c11 = self.conv1b(self.conv1aa(self.conv1a(im1)))
         c21 = self.conv1b(self.conv1aa(self.conv1a(im2)))
         c12 = self.conv2b(self.conv2aa(self.conv2a(c11)))
@@ -452,7 +471,8 @@ class PWCDCNet(PWCNet):
         flow2 = flow2 + self.dc_conv7(self.dc_conv6(self.dc_conv5(x)))
 
         flow_up = self.upsample1(flow2 * self.div_flow)
-        flow_up = self.postprocess_predictions(flow_up, image_resizer, is_flow=True)
+        if image_resizer is not None:
+            flow_up = self.postprocess_predictions(flow_up, image_resizer, is_flow=True)
 
         outputs = {}
         if self.training:

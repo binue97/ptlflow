@@ -38,23 +38,21 @@ class FlowNetSWB(FlowNetBase):
             **kwargs,
         )
 
-        self.conv1 = conv(
-            self.batch_norm, self.input_channels, 64, kernel_size=7, stride=2
-        )
-        self.conv2 = conv(self.batch_norm, 64, 128, kernel_size=5, stride=2)
-        self.conv3 = conv(self.batch_norm, 128, 256, kernel_size=5, stride=2)
-        self.conv3_1 = conv(self.batch_norm, 256, 256)
-        self.conv4 = conv(self.batch_norm, 256, 512, stride=2)
-        self.conv4_1 = conv(self.batch_norm, 512, 512)
-        self.conv5 = conv(self.batch_norm, 512, 512, stride=2)
-        self.conv5_1 = conv(self.batch_norm, 512, 512)
-        self.conv6 = conv(self.batch_norm, 512, 1024, stride=2)
-        self.conv6_1 = conv(self.batch_norm, 1024, 1024)
+        self.conv1 = dw_conv(self.batch_norm, self.input_channels, 64, kernel_size=7, stride=2)
+        self.conv2 = dw_conv(self.batch_norm, 64, 128, kernel_size=5, stride=2)
+        self.conv3 = dw_conv(self.batch_norm, 128, 256, kernel_size=5, stride=2)
+        self.conv3_1 = dw_conv(self.batch_norm, 256, 256)
+        self.conv4 = dw_conv(self.batch_norm, 256, 512, stride=2)
+        self.conv4_1 = dw_conv(self.batch_norm, 512, 512)
+        self.conv5 = dw_conv(self.batch_norm, 512, 512, stride=2)
+        self.conv5_1 = dw_conv(self.batch_norm, 512, 512)
+        self.conv6 = dw_conv(self.batch_norm, 512, 1024, stride=2)
+        self.conv6_1 = dw_conv(self.batch_norm, 1024, 1024)
 
-        self.deconv5 = deconv(1024, 512)
-        self.deconv4 = deconv(1026, 256)
-        self.deconv3 = deconv(770, 128)
-        self.deconv2 = deconv(386, 64)
+        self.deconv5 = deconv(False, 1024, 512)
+        self.deconv4 = deconv(False, 1026, 256)
+        self.deconv3 = deconv(False, 770, 128)
+        self.deconv2 = deconv(False, 386, 64)
 
         self.predict_flow6 = predict_flow(1024)
         self.predict_flow5 = predict_flow(1026)
@@ -102,8 +100,8 @@ class FlowNetSWB(FlowNetBase):
         x = images
 
         x = x.view(x.shape[0], x.shape[1] * x.shape[2], x.shape[3], x.shape[4])
-        out_conv1 = self.conv1(x)
 
+        out_conv1 = self.conv1(x)
         out_conv2 = self.conv2(out_conv1)
         out_conv3 = self.conv3_1(self.conv3(out_conv2))
         out_conv4 = self.conv4_1(self.conv4(out_conv3))

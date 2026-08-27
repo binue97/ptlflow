@@ -1,16 +1,14 @@
-"""Export an OFNet v1 model to ONNX.
+"""Export an SV-PWCNet (mobile-optimized PWC-Net) model to ONNX.
 
 Usage example:
-    python convert_to_onnx.py --model ofnet_v1m --ckpt_path kitti \
-        --input_size 256 640 --opset_version 17 --output_path .
+    python convert_to_onnx.py --model sv_pwcnet \
+        --input_size 384 512 --opset_version 16 --output_path .
 """
 
 import sys
 from argparse import ArgumentParser
 from pathlib import Path
 
-# Ensure the workspace root is on sys.path so that 'ptlflow' always resolves
-# to this editable install, not to any older system-wide install.
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 import onnx
@@ -18,90 +16,62 @@ import torch
 import torch.nn as nn
 
 from ptlflow import restore_model
-from ptlflow.models.ofnet.ofnet_v1 import (
-    ofnet_v1,
-    ofnet_v1t,
-    ofnet_v1s,
-    ofnet_v1m,
-    ofnet_v1l,
-)
+from ptlflow.models.pwcnet.sv_pwcnet import sv_pwcnet
+
+# 4 stride-2 feature levels (5-level pyramid) → inputs must be divisible by 16.
+_ALIGN = 16
 
 _MODELS = {
-    "ofnet_v1": ofnet_v1,
-    "ofnet_v1t": ofnet_v1t,
-    "ofnet_v1s": ofnet_v1s,
-    "ofnet_v1m": ofnet_v1m,
-    "ofnet_v1l": ofnet_v1l,
+    "sv_pwcnet": sv_pwcnet,
 }
 
 
-_ALIGN = 32
-
-
-def _round_up(x: int, multiple: int) -> int:
-    return ((x + multiple - 1) // multiple) * multiple
-
-
-class _IdentityResizer:
-    """A no-op resizer that avoids tracing any Slice/Pad ops."""
-
-    def fill(self, x):
-        return x
-
-    def unfill(self, x):
-        return x
-
-
 class OnnxWrapper(nn.Module):
-    """Wraps the model to accept two separate (B, 3, H, W) image tensors.
+    """Wraps SV-PWCNet to accept two separate (B, 3, H, W) RGB float tensors.
 
-    The model is constructed with ``simple_io=True`` so it accepts a raw
-    ``(B, 2, 3, H, W)`` tensor and returns ``(B, 2, H, W)`` flow directly.
+    The two frames are passed straight into the network core
+    (``model._forward_pair``), so the exported ONNX graph takes two
+    (B, 3, H, W) inputs and never stacks them into a 5D (B, 2, 3, H, W) tensor.
 
-    The model's internal InputPadder is replaced with a no-op so that
-    onnxsim cannot introduce multi-axis Slice nodes.
+    Calling the core directly also bypasses preprocessing (the BGR->RGB flip and
+    the interpolation resize to a multiple of the output stride), just like
+    skip_preprocess=True. The resize is a no-op when H and W are already
+    multiples of the stride, so this matches the model's normal output for
+    aligned inputs. Intensity is used as-is (bgr_add=0, bgr_mult=1).
     """
 
     def __init__(self, model):
         super().__init__()
         self.model = model
-        # Monkey-patch preprocess_images so the internal InputPadder is never
-        # created — we handle padding externally in this wrapper.
-        _orig_preprocess = model.preprocess_images
-
-        def _preprocess_no_pad(images, **kwargs):
-            # Apply only the color normalization (bgr_add / bgr_mult), skip
-            # InputPadder entirely by forcing image_resizer=_IdentityResizer().
-            return _orig_preprocess(images, image_resizer=_IdentityResizer(), **kwargs)
-
-        model.preprocess_images = _preprocess_no_pad
 
     def forward(self, image1: torch.Tensor, image2: torch.Tensor) -> torch.Tensor:
         _, _, H, W = image1.shape
         assert H % _ALIGN == 0 and W % _ALIGN == 0, (
             f"Input spatial dims must be divisible by {_ALIGN}, got ({H}, {W})"
         )
-        flow = self.model(image1, image2)  # (B, 2, H, W)
-        return flow
+        # Feed the two frames straight into the network core as separate
+        # (B, 3, H, W) tensors. No torch.stack, so the ONNX graph never builds a
+        # 5D (B, 2, 3, H, W) tensor (it would only be sliced back apart anyway).
+        outputs = self.model._forward_pair(image1, image2)
+        return outputs["flows"][:, 0]  # (B, 2, H, W)
 
 
 def _init_parser() -> ArgumentParser:
-    parser = ArgumentParser(description="Export an OFNet v1 model to ONNX.")
+    parser = ArgumentParser(description="Export SV-PWCNet model to ONNX.")
     parser.add_argument(
         "--model",
         type=str,
-        default="ofnet_v1m",
+        default="sv_pwcnet",
         choices=list(_MODELS.keys()),
-        help="OFNet v1 model variant.",
+        help="Which SV-PWCNet variant to export.",
     )
     parser.add_argument(
         "--ckpt_path",
         type=str,
         default=None,
         help=(
-            "Pretrained weight key (e.g. 'chairs', 'things', 'sintel', 'kitti') "
-            "or an absolute/relative path to a local .ckpt file. "
-            "If omitted, random weights are used."
+            "Pretrained weight key or an absolute/relative path to a local .ckpt "
+            "file. If omitted, random weights are used."
         ),
     )
     parser.add_argument(
@@ -116,7 +86,7 @@ def _init_parser() -> ArgumentParser:
         "--opset_version",
         type=int,
         default=17,
-        help="ONNX opset version to use during export.",
+        help="ONNX opset version to use during export (>=16 is required for grid_sample).",
     )
     parser.add_argument(
         "--output_path",
@@ -129,8 +99,7 @@ def _init_parser() -> ArgumentParser:
 
 @torch.no_grad()
 def export(args) -> None:
-    model_cls = _MODELS[args.model]
-    model = model_cls(simple_io=True)
+    model = _MODELS[args.model]()
     model = restore_model(model, args.ckpt_path)
     model.eval()
 
@@ -138,8 +107,20 @@ def export(args) -> None:
     wrapper.eval()
 
     H, W = args.input_size
+    if H % _ALIGN != 0 or W % _ALIGN != 0:
+        raise ValueError(f"--input_size must be divisible by {_ALIGN}, got ({H}, {W})")
+
+    if args.opset_version < 16:
+        raise ValueError(
+            f"opset_version must be >= 16 (grid_sample support), got {args.opset_version}"
+        )
+
     img1 = torch.rand(1, 3, H, W)
     img2 = torch.rand(1, 3, H, W)
+    if torch.cuda.is_available():
+        wrapper = wrapper.cuda()
+        img1 = img1.cuda()
+        img2 = img2.cuda()
 
     sample_output = wrapper(img1, img2)
     print(f"image1 shape : {list(img1.shape)}")
@@ -161,11 +142,6 @@ def export(args) -> None:
         opset_version=args.opset_version,
         input_names=["image1", "image2"],
         output_names=["flows"],
-        # dynamic_axes={
-        #     "image1": {0: "batch", 2: "height", 3: "width"},
-        #     "image2": {0: "batch", 2: "height", 3: "width"},
-        #     "flows":  {0: "batch", 2: "height_out", 3: "width_out"},
-        # },
         do_constant_folding=True,
     )
     print(f"Saved : {output_file}")
@@ -194,4 +170,3 @@ if __name__ == "__main__":
     parser = _init_parser()
     args = parser.parse_args()
     export(args)
-

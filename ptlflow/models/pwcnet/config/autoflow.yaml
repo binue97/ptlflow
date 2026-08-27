@@ -3,27 +3,25 @@ seed_everything: true
 lr: 0.0004
 wdecay: 0.0001
 trainer:
-  # max_epochs: 45
-  max_epochs: 420 # 22872 / batch_size(8) = 2859 iterations per epoch, 2859*420=1200780 ~= 1.2M iterations
+  max_epochs: 300 # 40000 / batch_size(10) = 4000 iterations per epoch, 4000*300=1200000 ~= 1.2M iterations
   accumulate_grad_batches: 1
   gradient_clip_val: 1.0
-  # devices: 0
+  # devices: 0,1,2,3
 model:
-  class_path: ptlflow.models.flownets_wb
+  class_path: ptlflow.models.sv_pwcnet
   init_args:
     div_flow: 20.0
-    input_channels: 6
-    batch_norm: False
+    md: 3
     loss_start_scale: 4
-    loss_num_scales: 5
+    loss_num_scales: 3
     loss_base_weight: 0.32
     loss_norm: L2
     warm_start: false
 data:
-  train_dataset: chairs
+  train_dataset: autoflow
   val_dataset: sintel-final-val+kitti-2015-val
-  train_batch_size: 8
-  train_num_workers: 4
+  train_batch_size: 10
+  train_num_workers: 8
   train_crop_size: [368, 496]
   # train_crop_size: [352, 480]
   train_transform_cuda: false

@@ -41,8 +41,8 @@ class FlowNetFusion(FlowNetBase):
         self.conv2 = conv(self.batch_norm, 128, 128, stride=2)
         self.conv2_1 = conv(self.batch_norm, 128, 128)
 
-        self.deconv1 = deconv(128, 32)
-        self.deconv0 = deconv(162, 16)
+        self.deconv1 = deconv(self.batch_norm, 128, 32)
+        self.deconv0 = deconv(self.batch_norm, 162, 16)
 
         self.inter_conv1 = i_conv(self.batch_norm, 162, 32)
         self.inter_conv0 = i_conv(self.batch_norm, 82, 16)
